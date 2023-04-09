@@ -24,6 +24,8 @@ from sagemaker_containers.beta.framework import (
     content_types, encoders, env, modules, transformer, worker)
 
 
+date_types = ['hour_sin', 'hour_cos', 'day_sin', 'day_cos', 'week_day_sin', 'week_day_cos']
+
 def discretize_date(current_date, t):
     current_date = str(current_date)[:-7]
     cdate = datetime.strptime(current_date, '%Y-%m-%d %H:%M:%S')
@@ -40,83 +42,62 @@ def discretize_date(current_date, t):
     if t == 'week_day_cos':
         return np.cos(2 * np.pi * cdate.timetuple().tm_yday/7.0)
 
+def preprocess_training_data(data):
+    if not 'TRAINING_JOB_NAME' in os.environ and not 'TRANSFORM_JOB_ARN' in os.environ:
+        #The above check is for training and transform mode, which means
+        #if the control flow gets here, we are in inference mode
+        data = [ pd.DataFrame(np.squeeze([data])) ]
+        data = pd.concat(data)
 
-def preprocess_data(data):
-    if type(data) == pd.DataFrame:
-        features = pd.DataFrame()
-        features['state'] = data.get('transactionState')
-        features['transactionId'] = data.get('transactionId')
-        features['originUserId'] = data.get('originUserId')
-        features['destinationUserId'] = data.get('destinationUserId')
+    features = pd.DataFrame()
+    features['state'] = data.get('transactionState')
+    features['transactionId'] = data.get('transactionId')
+    features['originUserId'] = data.get('originUserId')
+    features['destinationUserId'] = data.get('destinationUserId')
+    try:
         features['destinationCountry'] = data['destinationAmountDetails'].map(lambda x: x['country'])
+    except KeyError:
+        features['destinationCountry'] = [None]
+    try:
         features['destinationCurrency'] = data['destinationAmountDetails'].map(lambda x: x['transactionCurrency'])
+    except KeyError:
+        features['destinationCurrency'] = [None]
+    try:
         features['destinationAmount'] = data['destinationAmountDetails'].map(lambda x: x['transactionAmount'])
+    except KeyError:
+        features['destinationAmount'] = [None]
+    try:
         features['originCountry'] = data['originAmountDetails'].map(lambda x: x['country'])
+    except KeyError:
+        features['originCountry'] = [None]
+    try:
         features['originCurrency'] = data['originAmountDetails'].map(lambda x: x['transactionCurrency'])
+    except KeyError:
+        features['originCurrency'] = [None]
+    try:
         features['originAmount'] = data['originAmountDetails'].map(lambda x: x['transactionAmount'])
+    except KeyError:
+        features['originAmount'] = [None]
+    try:
         features['destinationMethod'] = data['destinationPaymentDetails'].map(lambda x: x['method'])
+    except KeyError:
+        features['destinationMethod'] = [None]
+    try:
         features['originMethod'] = data['originPaymentDetails'].map(lambda x: x['method'])
-        features.fillna('N/A', inplace = True)
+    except KeyError:
+        features['originMethod'] = [None]
 
+    try:
         features['datetime'] = data['timestamp'].map(lambda x: datetime.fromtimestamp(int(x['$numberLong']) / 1000))
-        date_types = ['hour_sin', 'hour_cos', 'day_sin', 'day_cos', 'week_day_sin', 'week_day_cos']
         for dt in date_types:
             features[dt] = features['datetime'].apply(lambda x : discretize_date(x, dt))
-
-
         features.drop(columns = ['datetime'], inplace = True)
-        
-    else:
-        print(data)
-        print(type(data))
-        features = {}
-        try:
-            features['destinationCountry'] = data['destinationAmountDetails']['country']
-        except KeyError:
-            features['destinationCountry'] = None
-        try:
-            features['destinationCurrency'] = data['destinationAmountDetails']['transactionCurrency']
-        except KeyError:
-            features['destinationCurrency'] = None
-        try:
-            features['destinationAmount'] = data['destinationAmountDetails']['transactionAmount']
-        except KeyError:
-            features['destinationAmount'] = None
-        try:
-            features['originCountry'] = data['originAmountDetails']['country']
-        except KeyError:
-            features['originCountry'] = None
-        try:
-            features['originCurrency'] = data['originAmountDetails']['transactionCurrency']
-        except KeyError:
-            features['originCurrency'] = None
-        try:
-            features['originAmount'] = data['originAmountDetails']['transactionAmount']
-        except KeyError:
-            features['originAmount'] = None
-        try:
-            features['destinationMethod'] = data['destinationPaymentDetails']['method']
-        except KeyError:
-            features['destinationMethod'] = None
-        try:
-            features['originMethod'] = data['originPaymentDetails']['method']
-        except KeyError:
-            features['originMethod'] = None
+    except KeyError:
+        for dt in date_types:
+            features[dt] = [None]
 
-        features['state'] = data.get('transactionState')
-        features['transactionId'] = data.get('transactionId')
-        features['originUserId'] = data.get('originUserId')
-        features['destinationUserId'] = data.get('destinationUserId')
-        try:
-            features['datetime'] = datetime.fromtimestamp(int(data['timestamp']['$numberLong']) / 1000)
-            date_types = ['hour_sin', 'hour_cos', 'day_sin', 'day_cos', 'week_day_sin', 'week_day_cos']
-            for dt in date_types:
-                features[dt] = discretize_date(features['datetime'], dt)
-            features.pop('datetime')
-        except KeyError:
-            warnings.warn("No timestamp provided")
-        
     return features
+
 
 if __name__ == '__main__':
 
@@ -140,7 +121,7 @@ if __name__ == '__main__':
     raw_data = [ pd.read_json(file) for file in input_files ]
     concat_data = pd.concat(raw_data)
 
-    features = preprocess_data(concat_data)
+    features = preprocess_training_data(concat_data)
 
     # This section is adapted from the scikit-learn example of using preprocessing pipelines:
     #
@@ -215,7 +196,7 @@ def predict_fn(input_data, model):
 
         rest of features either label encoded or standardized
     """
-    features = preprocess_data(input_data)
+    features = preprocess_training_data(input_data)
     transformed_features = model.transform(features)
 
     return transformed_features

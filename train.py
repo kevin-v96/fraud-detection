@@ -1,17 +1,35 @@
 from __future__ import print_function
 
-import argparse
-import joblib
+import time
+import sys
+from io import StringIO
 import os
-import pandas as pd
+import shutil
+import argparse
+import csv
+import json
+import joblib
 import numpy as np
+import pandas as pd
+from datetime import datetime
+import warnings
 
 from sklearn.ensemble import IsolationForest
+
+from sagemaker_containers.beta.framework import (
+    content_types, encoders, env, modules, transformer, worker)
+
+def preprocess_data(train_data):
+    features_list = train_data["instances"]
+    features = [f["features"] for f in features_list]
+    original_features = pd.DataFrame(np.array(features))
+
+    return original_features
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    # Hyperparameters are described here. In this simple example we are just including one hyperparameter.
+    # Hyperparameters are described here. In this example we are just including one hyperparameter.
     parser.add_argument('--max_samples', type=str, default='auto')
 
     # Sagemaker specific arguments. Defaults are set in the environment variables.
@@ -32,14 +50,12 @@ if __name__ == '__main__':
     train_data = pd.concat(raw_data)
 
 
-    # Now use scikit-learn's decision tree classifier to train the model.
+    # Now use scikit-learn's IsolationForest to train the model.
     clf = IsolationForest(random_state = 42)
-    features_list = train_data["instances"]
-    features = [f["features"] for f in features_list]
-    original_features = pd.DataFrame(np.array(features))
+    original_features = preprocess_data(train_data)
     clf = clf.fit(original_features)
 
-    # Print the coefficients of the trained classifier, and save the coefficients
+    # Save the model
     joblib.dump(clf, os.path.join(args.model_dir, "model.joblib"))
 
 
@@ -64,13 +80,7 @@ def output_fn(prediction, accept):
     """
 
     if accept == "application/json":
-        instances = []
-        for row in prediction.tolist():
-            instances.append({"features": row})
-
-        json_output = {"instances": instances}
-
-        return worker.Response(json.dumps(json_output), mimetype=accept)
+        return worker.Response(json.dumps(prediction), mimetype=accept)
     elif accept == 'text/csv':
         return worker.Response(encoders.encode(prediction, accept), mimetype=accept)
     else:
@@ -78,9 +88,23 @@ def output_fn(prediction, accept):
 
 
 def model_fn(model_dir):
-    """Deserialized and return fitted model
+    """Deserialize and return fitted model
 
     Note that this should have the same name as the serialized model in the main method
     """
     clf = joblib.load(os.path.join(model_dir, "model.joblib"))
     return clf
+
+
+def predict_fn(input_data, model):
+    """Preprocess input data and run the model on it
+    """
+
+    input_data = preprocess_data(input_data)
+    predictions = model.predict(input_data)
+    scores = model.score_samples(input_data)
+    result = {}
+    result["predictions"] = predictions.tolist()
+    result["scores"] = scores.tolist()
+
+    return result
