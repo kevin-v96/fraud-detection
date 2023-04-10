@@ -20,6 +20,7 @@ from sagemaker_containers.beta.framework import (
     content_types, encoders, env, modules, transformer, worker)
 
 def preprocess_data(train_data):
+    #sagemaker passes data between its pipeline steps in a specific format, which we preprocess here to get our data
     features_list = train_data["instances"]
     features = [f["features"] for f in features_list]
     original_features = pd.DataFrame(np.array(features))
@@ -60,8 +61,8 @@ if __name__ == '__main__':
 
 
 def input_fn(input_data, content_type):
-    """Parse input data payload
-
+    """Parse input data payload. This is the function that our 
+        data passes through first when this step of the pipeline is called
     """
     if content_type == 'application/json':
         df = pd.read_json(input_data)
@@ -77,6 +78,9 @@ def output_fn(prediction, accept):
     The default accept/content-type between containers for serial inference is JSON.
     We also want to set the ContentType or mimetype as the same value as accept so the next
     container can read the response payload correctly.
+
+    This is the function where we can format our output before it is sent to either the next step of the 
+    pipeline or the client.
     """
 
     if accept == "application/json":
@@ -98,13 +102,14 @@ def model_fn(model_dir):
 
 def predict_fn(input_data, model):
     """Preprocess input data and run the model on it
+    This is the function that will run at the time of inference.
     """
 
-    input_data = preprocess_data(input_data)
-    predictions = model.predict(input_data)
-    scores = model.score_samples(input_data)
+    input_data = preprocess_data(input_data)    #preprocess the inference data the same way our training data was
+    predictions = model.predict(input_data)     #get the prediction
+    scores = model.score_samples(input_data)    #and the anomaly score
     result = {}
     result["predictions"] = predictions.tolist()
     result["scores"] = scores.tolist()
 
-    return result
+    return result   #send the prediction and the anomaly score in a dictionary that can be serialized into json

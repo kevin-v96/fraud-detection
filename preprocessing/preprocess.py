@@ -26,6 +26,7 @@ from sagemaker_containers.beta.framework import (
 
 date_types = ['hour_sin', 'hour_cos', 'day_sin', 'day_cos', 'week_day_sin', 'week_day_cos']
 
+#this function handles the circular time data
 def discretize_date(current_date, t):
     current_date = str(current_date)[:-7]
     cdate = datetime.strptime(current_date, '%Y-%m-%d %H:%M:%S')
@@ -54,9 +55,14 @@ def preprocess_training_data(data):
     features['transactionId'] = data.get('transactionId')
     features['originUserId'] = data.get('originUserId')
     features['destinationUserId'] = data.get('destinationUserId')
+    #the four features above can straightly be copied from the input data
+
     try:
         features['destinationCountry'] = data['destinationAmountDetails'].map(lambda x: x['country'])
     except KeyError:
+        #we do this safecheck for the nested features because some of the features aren't provided during inference,
+        #which throws an error. Moreover, we want them to be None so that we can fill them in whatever 
+        #way our model requires
         features['destinationCountry'] = [None]
     try:
         features['destinationCurrency'] = data['destinationAmountDetails'].map(lambda x: x['transactionCurrency'])
@@ -90,7 +96,9 @@ def preprocess_training_data(data):
     try:
         features['datetime'] = data['timestamp'].map(lambda x: datetime.fromtimestamp(int(x['$numberLong']) / 1000))
         for dt in date_types:
+            #we extract features from datetime here
             features[dt] = features['datetime'].apply(lambda x : discretize_date(x, dt))
+        #and drop the datetime feature since we don't need it
         features.drop(columns = ['datetime'], inplace = True)
     except KeyError:
         for dt in date_types:

@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 
+#this data cleaning is was used during data exploration and is nearly the same as the one in the preprocessing step of the pipeline
+
 def discretize_date(current_date, t):
     current_date = str(current_date)[:-7]
     cdate = datetime.strptime(current_date, '%Y-%m-%d %H:%M:%S')
