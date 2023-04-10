@@ -1,4 +1,4 @@
-# fraud-detection
+# Detecting fraudulent transactions in financial data
 
 Data cleaning code is in the data folder, preprocessing code (for the preprocessing that sagemaker does as the first step of the pipeline) 
 is in the preprocessing folder.
